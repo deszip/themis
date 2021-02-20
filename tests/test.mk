@@ -15,9 +15,7 @@
 #
 
 COMMON_TEST_SRC = $(wildcard tests/common/*.c)
-COMMON_TEST_OBJ = $(patsubst $(TEST_SRC_PATH)/%.c,$(TEST_OBJ_PATH)/%.o, $(COMMON_TEST_SRC))
-
-NIST_STS_DIR = tests/soter/nist-sts
+COMMON_TEST_OBJ = $(patsubst %,$(OBJ_PATH)/%.o, $(COMMON_TEST_SRC))
 
 GOTHEMIS_IMPORT = github.com/cossacklabs/themis/gothemis
 
@@ -25,96 +23,82 @@ include tests/soter/soter.mk
 include tests/tools/tools.mk
 include tests/themis/themis.mk
 include tests/themispp/themispp.mk
+include tests/themispp_simple/themispp_simple.mk
+
+soter_test:    $(SOTER_TEST_BIN)
+themis_test:   $(THEMIS_TEST_BIN)
+themispp_test: $(TEST_BIN_PATH)/themispp_test
+
+$(OBJ_PATH)/tests/%: CFLAGS += -I$(TEST_SRC_PATH)
 
 PYTHON2_TEST_SCRIPT=$(BIN_PATH)/tests/pythemis2_test.sh
 PYTHON3_TEST_SCRIPT=$(BIN_PATH)/tests/pythemis3_test.sh
 
-nist_rng_test_suite: CMD = $(MAKE) -C $(NIST_STS_DIR)
-
-nist_rng_test_suite:
-	@mkdir -p $(NIST_STS_DIR)/obj
-	@cd $(NIST_STS_DIR)/experiments && ./create-dir-script
-	@$(BUILD_CMD)
-
-nist_rng_test_suite_clean: 
-	@echo "cleaning nist suit"
-	@make clean -C $(NIST_STS_DIR)
-
-soter_test: CMD = $(CC) -o $(TEST_BIN_PATH)/soter_test $(SOTER_TEST_OBJ) $(COMMON_TEST_OBJ) -L$(BIN_PATH) -lsoter $(LDFLAGS) $(COVERLDFLAGS)
-
-soter_test: nist_rng_test_suite soter_static $(SOTER_ENGINE_DEPS) $(SOTER_TEST_OBJ) $(COMMON_TEST_OBJ)
-	@echo -n "link "
-	@$(BUILD_CMD)
-
-themis_test: CMD = $(CC) -o $(TEST_BIN_PATH)/themis_test $(THEMIS_TEST_OBJ) $(COMMON_TEST_OBJ) $(CFLAGS) -L$(BIN_PATH) -lthemis -lsoter $(LDFLAGS) $(COVERLDFLAGS)
-
-themis_test: themis_static $(THEMIS_TEST_OBJ) $(COMMON_TEST_OBJ)
-	@echo -n "link "
-	@$(BUILD_CMD)
-
-themispp_test: CMD = $(CXX) -o $(TEST_BIN_PATH)/themispp_test $(THEMISPP_TEST_OBJ) -L$(BIN_PATH) -lthemis -lsoter -lstdc++ $(LDFLAGS) $(COVERLDFLAGS)
-
-themispp_test: $(THEMISPP_TEST_OBJ)
-	@echo -n "link "
-	@$(BUILD_CMD)
+rustthemis_integration_tools:
+	@echo "make integration tools for rust-themis..."
+	@cargo build --package themis-integration-tools
+	@for tool in $(notdir $(foreach tool,$(wildcard tools/rust/*.rs),$(basename $(tool)))); \
+	do cp target/debug/$$tool tools/rust/$$tool.rust; done
+	@$(PRINT_OK_)
 
 prepare_tests_basic: soter_test themis_test
 
-prepare_tests_all: err prepare_tests_basic themispp_test
+prepare_tests_all: prepare_tests_basic themispp_test
 ifdef PHP_VERSION
 	@echo -n "make tests for phpthemis "
-	@echo "#!/bin/bash -e" > ./$(BIN_PATH)/tests/phpthemis_test.sh
+	@echo "#!/usr/bin/env bash" > ./$(BIN_PATH)/tests/phpthemis_test.sh
+	@echo "set -eu" >> ./$(BIN_PATH)/tests/phpthemis_test.sh
 	@echo "cd tests/phpthemis; bash ./run_tests.sh" >> ./$(BIN_PATH)/tests/phpthemis_test.sh
 	@chmod a+x ./$(BIN_PATH)/tests/phpthemis_test.sh
 	@$(PRINT_OK_)
 endif
 ifdef RUBY_GEM_VERSION
-	@echo -n "make tests for rubythemis "
-	@echo "#!/bin/bash -e" > ./$(BIN_PATH)/tests/rubythemis_test.sh
-	@echo "ruby ./tests/rubythemis/scell_test.rb" >> ./$(BIN_PATH)/tests/rubythemis_test.sh
-	@echo "ruby ./tests/rubythemis/smessage_test.rb" >> ./$(BIN_PATH)/tests/rubythemis_test.sh
-	@echo "ruby ./tests/rubythemis/ssession_test.rb" >> ./$(BIN_PATH)/tests/rubythemis_test.sh
-	@echo "ruby ./tests/rubythemis/scomparator_test.rb" >> ./$(BIN_PATH)/tests/rubythemis_test.sh
-	@chmod a+x ./$(BIN_PATH)/tests/rubythemis_test.sh
+	@echo -n "make tests for rbthemis "
+	@echo "#!/usr/bin/env bash" > ./$(BIN_PATH)/tests/rbthemis_test.sh
+	@echo "set -eu" >> ./$(BIN_PATH)/tests/rbthemis_test.sh
+	@echo "ruby ./tests/rbthemis/scell_test.rb" >> ./$(BIN_PATH)/tests/rbthemis_test.sh
+	@echo "ruby ./tests/rbthemis/smessage_test.rb" >> ./$(BIN_PATH)/tests/rbthemis_test.sh
+	@echo "ruby ./tests/rbthemis/ssession_test.rb" >> ./$(BIN_PATH)/tests/rbthemis_test.sh
+	@echo "ruby ./tests/rbthemis/scomparator_test.rb" >> ./$(BIN_PATH)/tests/rbthemis_test.sh
+	@chmod a+x ./$(BIN_PATH)/tests/rbthemis_test.sh
 	@$(PRINT_OK_)
-endif
-ifdef PYTHON2_VERSION
-	@echo -n "make tests for pythemis with python 2 "
-	@echo "#!/bin/bash -e" > ./$(PYTHON2_TEST_SCRIPT)
-	@echo "python2 -m unittest discover -s tests/pythemis" >> ./$(PYTHON2_TEST_SCRIPT)
-	@chmod a+x ./$(PYTHON2_TEST_SCRIPT)
 endif
 ifdef PYTHON3_VERSION
 	@echo -n "make tests for pythemis with python3 "
-	@echo "#!/bin/bash -e" > ./$(PYTHON3_TEST_SCRIPT)
+	@echo "#!/usr/bin/env bash" > ./$(PYTHON3_TEST_SCRIPT)
+	@echo "set -eu" >> ./$(PYTHON3_TEST_SCRIPT)
 	@echo "python3 -m unittest discover -s tests/pythemis" >> ./$(PYTHON3_TEST_SCRIPT)
 	@chmod a+x ./$(PYTHON3_TEST_SCRIPT)
 	@$(PRINT_OK_)
 endif
-ifdef NPM_VERSION
-	@echo -n "make tests for jsthemis "
-	@echo "#!/bin/bash -e" > ./$(BIN_PATH)/tests/jsthemis_test.sh
-	@echo "npm install mocha" >> ./$(BIN_PATH)/tests/jsthemis_test.sh
-	@echo "$(shell npm root)/mocha/bin/mocha ./tests/jsthemis" >> ./$(BIN_PATH)/tests/jsthemis_test.sh
-	@chmod a+x ./$(BIN_PATH)/tests/jsthemis_test.sh
-	@$(PRINT_OK_)
+
+ifdef IS_EMSCRIPTEN
+RUN_TEST = node
 endif
 
-
-
 test: prepare_tests_basic
+ifdef IS_EMSCRIPTEN
+ifeq ($(NODE_VERSION),)
+	@echo 2>&1 "------------------------------------------------------------"
+	@echo 2>&1 "Node.js is not installed. Cannot run tests in Emscripten environment."
+	@echo 2>&1 ""
+	@echo 2>&1 "Make sure you have \"node\" binary available in PATH and try again."
+	@echo 2>&1 "------------------------------------------------------------"
+	@exit 1
+endif
+endif
 	@echo "------------------------------------------------------------"
 	@echo "Running themis-core basic tests."
-	$(TEST_BIN_PATH)/soter_test
+	$(RUN_TEST) $(SOTER_TEST_BIN)
 	@echo "------------------------------------------------------------"
-	$(TEST_BIN_PATH)/themis_test
+	$(RUN_TEST) $(THEMIS_TEST_BIN)
 	@echo "------------------------------------------------------------"
 
 # require all dependencies to be installed
 test_cpp:
 	@echo "------------------------------------------------------------"
 	@echo "Running themissp tests."
-	@echo "If any error, check https://github.com/cossacklabs/themis/wiki/CPP-Howto"
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/cpp/"
 	@echo "------------------------------------------------------------"
 	$(TEST_BIN_PATH)/themispp_test
 	@echo "------------------------------------------------------------"
@@ -123,7 +107,7 @@ test_php:
 ifdef PHP_VERSION
 	@echo "------------------------------------------------------------"
 	@echo "Running phpthemis tests."
-	@echo "If any error, check https://github.com/cossacklabs/themis/wiki/PHP-Howto"
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/php/"
 	@echo "------------------------------------------------------------"
 	$(TEST_BIN_PATH)/phpthemis_test.sh
 	@echo "------------------------------------------------------------"
@@ -131,30 +115,25 @@ endif
 
 test_python:
 # run test if any of python version available
-ifneq ($(or $(PYTHON2_VERSION),$(PYTHON3_VERSION)),)
+ifneq ($(PYTHON3_VERSION),)
 	@echo "------------------------------------------------------------"
 	@echo "Running pythemis tests."
-	@echo "If any error, check https://github.com/cossacklabs/themis/wiki/Python-Howto"
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/python/"
 	@echo "------------------------------------------------------------"
-ifneq ($(PYTHON2_VERSION),)
-	$(PYTHON2_TEST_SCRIPT)
-endif
-ifneq ($(PYTHON3_VERSION),)
 	$(PYTHON3_TEST_SCRIPT)
-endif
 	@echo "------------------------------------------------------------"
 else
-	@echo "python2 or python3 not found"
+	@echo "python3 not found"
 	@exit 1
 endif
 
 test_ruby:
 ifdef RUBY_GEM_VERSION
 	@echo "------------------------------------------------------------"
-	@echo "Running rubythemis tests."
-	@echo "If any error, check https://github.com/cossacklabs/themis/wiki/Ruby-Howto"
+	@echo "Running rbthemis tests."
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/ruby/"
 	@echo "------------------------------------------------------------"
-	$(TEST_BIN_PATH)/rubythemis_test.sh
+	$(TEST_BIN_PATH)/rbthemis_test.sh
 	@echo "------------------------------------------------------------"
 endif
 
@@ -162,18 +141,46 @@ test_js:
 ifdef NPM_VERSION
 	@echo "------------------------------------------------------------"
 	@echo "Running jsthemis tests."
-	@echo "If any error, check https://github.com/cossacklabs/themis/wiki/NodeJS-Howto"
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/nodejs/"
 	@echo "------------------------------------------------------------"
-	$(TEST_BIN_PATH)/jsthemis_test.sh
+	cd $(JSTHEMIS_SRC) && npm install && npm test
+	@echo "------------------------------------------------------------"
 endif
 
 test_go:
-ifdef GO_VERSION	
+ifdef GO_VERSION
 	@echo "------------------------------------------------------------"
 	@echo "Running gothemis tests."
-	@echo "If any error, check https://github.com/cossacklabs/themis/wiki/Go-HowTo"
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/go/"
 	@echo "------------------------------------------------------------"
 	@go test -v $(GOTHEMIS_IMPORT)/...
 endif
 
-test_all: test prepare_tests_all test_cpp test_php test_python test_ruby test_js test_go
+test_rust:
+ifdef RUST_VERSION
+	@echo "------------------------------------------------------------"
+	@echo "Running rust-themis tests."
+	@echo "In case of errors, see https://docs.cossacklabs.com/themis/languages/rust/"
+	@echo "------------------------------------------------------------"
+	$(TEST_SRC_PATH)/rust/run_tests.sh
+	@echo "------------------------------------------------------------"
+endif
+
+test_wasm:
+ifdef NPM_VERSION
+	@echo "------------------------------------------------------------"
+	@echo "Running wasm-themis tests."
+	@echo "------------------------------------------------------------"
+	cd $(WASM_PATH) && npm install && npm test
+	@echo "------------------------------------------------------------"
+endif
+
+test_all: test prepare_tests_all test_cpp test_php test_python test_ruby test_js test_go test_rust
+
+# requires all dependencies to be installed in system paths
+test_cpp_simple: $(TEST_BIN_PATH)/themispp_simple_test
+	@echo "------------------------------------------------------------"
+	@echo "Running themissp simple test."
+	@echo "------------------------------------------------------------"
+	$(TEST_BIN_PATH)/themispp_simple_test
+	@echo "------------------------------------------------------------"

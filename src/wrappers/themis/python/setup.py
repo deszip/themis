@@ -17,16 +17,17 @@ import sys
 from setuptools import setup
 
 
-install_requires = []
+install_requires = ['six']
 if sys.version_info < (3, 4):
     install_requires.append('enum34')
 
 setup(
     name='pythemis',
-    version='0.10.0',
+    version='0.13.0',
 
     description='',
-    long_description=open("README.rst").read(),
+    long_description=open("README.md").read(),
+    long_description_content_type='text/markdown',
     license='Apache 2.0',
     url='https://cossacklabs.com',
 
@@ -41,7 +42,6 @@ setup(
         "Operating System :: POSIX",
         "Operating System :: POSIX :: BSD",
         "Operating System :: POSIX :: Linux",
-        "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python",
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 2.6",

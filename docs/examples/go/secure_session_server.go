@@ -3,45 +3,47 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
+	"os"
+
 	"github.com/cossacklabs/themis/gothemis/keys"
 	"github.com/cossacklabs/themis/gothemis/session"
-	"net"
 )
 
 type callbacks struct {
 }
 
 func (clb *callbacks) GetPublicKeyForId(ss *session.SecureSession, id []byte) *keys.PublicKey {
-	decoded_id, err := base64.StdEncoding.DecodeString(string(id[:]))
+	decodedID, err := base64.StdEncoding.DecodeString(string(id[:]))
 	if nil != err {
 		return nil
 	}
-	return &keys.PublicKey{decoded_id}
+	return &keys.PublicKey{Value: decodedID}
 }
 
 func (clb *callbacks) StateChanged(ss *session.SecureSession, state int) {
 
 }
 
-func connectionHandler(c net.Conn, server_id string, server_private_key *keys.PrivateKey) {
-	ss, err := session.New([]byte(server_id), server_private_key, &callbacks{})
+func connectionHandler(c net.Conn, serverID string, serverPrivateKey *keys.PrivateKey) {
+	ss, err := session.New([]byte(serverID), serverPrivateKey, &callbacks{})
 	if err != nil {
 		fmt.Println("error creating secure session object")
-		return
+		os.Exit(1)
 	}
 	for {
 		buf := make([]byte, 10240)
-		readed_bytes, err := c.Read(buf)
+		readBytes, err := c.Read(buf)
 		if err != nil {
 			fmt.Println("error reading bytes from socket")
-			return
+			os.Exit(1)
 		}
-		buf, send_peer, err := ss.Unwrap(buf[:readed_bytes])
+		buf, sendPeer, err := ss.Unwrap(buf[:readBytes])
 		if nil != err {
 			fmt.Println("error unwraping message")
-			return
+			os.Exit(1)
 		}
-		if !send_peer {
+		if !sendPeer {
 			if "finish" == string(buf[:]) {
 				return
 			}
@@ -49,13 +51,13 @@ func connectionHandler(c net.Conn, server_id string, server_private_key *keys.Pr
 			buf, err = ss.Wrap(buf)
 			if nil != err {
 				fmt.Println("error unwraping message")
-				return
+				os.Exit(1)
 			}
 		}
 		_, err = c.Write(buf)
 		if err != nil {
 			fmt.Println("error writing bytes from socket")
-			return
+			os.Exit(1)
 		}
 	}
 }
@@ -64,20 +66,20 @@ func main() {
 	l, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		fmt.Println("listen error")
-		return
+		os.Exit(1)
 	}
-	server_keypair, err := keys.New(keys.KEYTYPE_EC)
+	serverKeyPair, err := keys.New(keys.TypeEC)
 	if err != nil {
 		fmt.Println("error generating key pair")
-		return
+		os.Exit(1)
 	}
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("accepting error")
-			return
+			os.Exit(1)
 		}
 
-		go connectionHandler(conn, base64.StdEncoding.EncodeToString(server_keypair.Public.Value), server_keypair.Private)
+		go connectionHandler(conn, base64.StdEncoding.EncodeToString(serverKeyPair.Public.Value), serverKeyPair.Private)
 	}
 }

@@ -32,13 +32,13 @@
 //!     generated key (in RSA) or a key derived by ECDH (in ECDSA), via symmetric
 //!     algorithm with Secure Cell in seal mode (keys are 256 bits long).
 //!
-//! [Here you can read more][wiki] about cryptographic internals of Secure Messages.
+//! [Here you can read more][docs] about cryptographic internals of Secure Messages.
 //!
 //! [Secure Session]: ../secure_session/index.html
 //! [Sign]: struct.SecureSign.html
 //! [Verify]: struct.SecureVerify.html
 //! [Encrypt/Decrypt]: struct.SecureMessage.html
-//! [wiki]: https://github.com/cossacklabs/themis/wiki/Secure-Message-cryptosystem
+//! [docs]: https://docs.cossacklabs.com/themis/crypto-theory/cryptosystems/secure-message/
 //!
 //! # Examples
 //!
@@ -53,8 +53,8 @@
 //!
 //! let secure = SecureMessage::new(key_pair);
 //!
-//! let encrypted = secure.wrap(b"message")?;
-//! let decrypted = secure.unwrap(&encrypted)?;
+//! let encrypted = secure.encrypt(b"message")?;
+//! let decrypted = secure.decrypt(&encrypted)?;
 //! assert_eq!(decrypted, b"message");
 //! # Ok(())
 //! # }
@@ -64,10 +64,13 @@
 
 use std::ptr;
 
-use bindings::{themis_secure_message_unwrap, themis_secure_message_wrap};
+use bindings::{
+    themis_secure_message_decrypt, themis_secure_message_encrypt, themis_secure_message_sign,
+    themis_secure_message_verify,
+};
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::keys::{KeyPair, PublicKey, SecretKey};
+use crate::keys::{KeyPair, PrivateKey, PublicKey};
 use crate::utils::into_raw_parts;
 
 /// Secure Message encryption and decryption.
@@ -79,7 +82,7 @@ use crate::utils::into_raw_parts;
 /// # Examples
 ///
 /// In order to use Secure Message in encrypting mode you will need to have both public and
-/// secret keys available on both peers. Typical usage of Secure Message looks like this:
+/// private keys available on both peers. Typical usage of Secure Message looks like this:
 ///
 /// ```
 /// # fn main() -> Result<(), themis::Error> {
@@ -89,19 +92,19 @@ use crate::utils::into_raw_parts;
 /// // Generate and share this key pair between peers.
 /// let key_pair = gen_ec_key_pair();
 ///
-/// // Alice uses her own Secure Message instance to wrap (encrypt) messages.
+/// // Alice uses her own Secure Message instance to encrypt messages.
 /// let secure_a = SecureMessage::new(key_pair.clone());
-/// let encrypted = secure_a.wrap(b"message")?;
+/// let encrypted = secure_a.encrypt(b"message")?;
 ///
-/// // Bob uses his Secure Message instance to unwrap (decrypt) received messages.
+/// // Bob uses his Secure Message instance to decrypt received messages.
 /// let secure_b = SecureMessage::new(key_pair.clone());
-/// let decrypted = secure_b.unwrap(&encrypted)?;
+/// let decrypted = secure_b.decrypt(&encrypted)?;
 ///
 /// assert_eq!(decrypted, b"message");
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct SecureMessage {
     key_pair: KeyPair,
 }
@@ -110,13 +113,13 @@ impl SecureMessage {
     /// Makes a new Secure Message using given key pair.
     ///
     /// Both ECDSA and RSA key pairs are supported.
-    pub fn new<K: Into<KeyPair>>(key_pair: K) -> Self {
+    pub fn new(key_pair: impl Into<KeyPair>) -> Self {
         Self {
             key_pair: key_pair.into(),
         }
     }
 
-    /// Wraps the provided message into a secure encrypted message.
+    /// Encrypts the provided message into a secure container.
     ///
     /// # Examples
     ///
@@ -130,28 +133,110 @@ impl SecureMessage {
     ///
     /// let secure = SecureMessage::new(gen_ec_key_pair());
     ///
-    /// secure.wrap(b"byte string")?;
-    /// secure.wrap(&[1, 2, 3, 4, 5])?;
-    /// secure.wrap(vec![6, 7, 8, 9])?;
-    /// secure.wrap(format!("owned string"))?;
+    /// secure.encrypt(b"byte string")?;
+    /// secure.encrypt(&[1, 2, 3, 4, 5])?;
+    /// secure.encrypt(vec![6, 7, 8, 9])?;
+    /// secure.encrypt(format!("owned string"))?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn wrap<M: AsRef<[u8]>>(&self, message: M) -> Result<Vec<u8>> {
-        wrap(
-            self.key_pair.secret_key_bytes(),
-            self.key_pair.public_key_bytes(),
-            message.as_ref(),
-        )
+    pub fn encrypt(&self, message: impl AsRef<[u8]>) -> Result<Vec<u8>> {
+        let (private_key_ptr, private_key_len) = into_raw_parts(self.key_pair.private_key_bytes());
+        let (public_key_ptr, public_key_len) = into_raw_parts(self.key_pair.public_key_bytes());
+        let (message_ptr, message_len) = into_raw_parts(message.as_ref());
+
+        let mut encrypted = Vec::new();
+        let mut encrypted_len = 0;
+
+        unsafe {
+            let status = themis_secure_message_encrypt(
+                private_key_ptr,
+                private_key_len,
+                public_key_ptr,
+                public_key_len,
+                message_ptr,
+                message_len,
+                ptr::null_mut(),
+                &mut encrypted_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::BufferTooSmall {
+                return Err(error);
+            }
+        }
+
+        encrypted.reserve(encrypted_len);
+
+        unsafe {
+            let status = themis_secure_message_encrypt(
+                private_key_ptr,
+                private_key_len,
+                public_key_ptr,
+                public_key_len,
+                message_ptr,
+                message_len,
+                encrypted.as_mut_ptr(),
+                &mut encrypted_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::Success {
+                return Err(error);
+            }
+            debug_assert!(encrypted_len <= encrypted.capacity());
+            encrypted.set_len(encrypted_len as usize);
+        }
+
+        Ok(encrypted)
     }
 
-    /// Unwraps an encrypted message back into its original form.
-    pub fn unwrap<M: AsRef<[u8]>>(&self, wrapped: M) -> Result<Vec<u8>> {
-        unwrap(
-            self.key_pair.secret_key_bytes(),
-            self.key_pair.public_key_bytes(),
-            wrapped.as_ref(),
-        )
+    /// Decrypts an encrypted message back into its original form.
+    pub fn decrypt(&self, message: impl AsRef<[u8]>) -> Result<Vec<u8>> {
+        let (private_key_ptr, private_key_len) = into_raw_parts(self.key_pair.private_key_bytes());
+        let (public_key_ptr, public_key_len) = into_raw_parts(self.key_pair.public_key_bytes());
+        let (wrapped_ptr, wrapped_len) = into_raw_parts(message.as_ref());
+
+        let mut decrypted = Vec::new();
+        let mut decrypted_len = 0;
+
+        unsafe {
+            let status = themis_secure_message_decrypt(
+                private_key_ptr,
+                private_key_len,
+                public_key_ptr,
+                public_key_len,
+                wrapped_ptr,
+                wrapped_len,
+                ptr::null_mut(),
+                &mut decrypted_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::BufferTooSmall {
+                return Err(error);
+            }
+        }
+
+        decrypted.reserve(decrypted_len);
+
+        unsafe {
+            let status = themis_secure_message_decrypt(
+                private_key_ptr,
+                private_key_len,
+                public_key_ptr,
+                public_key_len,
+                wrapped_ptr,
+                wrapped_len,
+                decrypted.as_mut_ptr(),
+                &mut decrypted_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::Success {
+                return Err(error);
+            }
+            debug_assert!(decrypted_len <= decrypted.capacity());
+            decrypted.set_len(decrypted_len as usize);
+        }
+
+        Ok(decrypted)
     }
 }
 
@@ -167,7 +252,7 @@ impl SecureMessage {
 ///
 /// # Examples
 ///
-/// In order to sign messages you need only the secret part of a key pair. It does not need to be
+/// In order to sign messages you need only the private half of a key pair. It does not need to be
 /// shared with your peer for verification.
 ///
 /// ```
@@ -176,11 +261,11 @@ impl SecureMessage {
 /// use themis::secure_message::SecureVerify;
 /// use themis::keygen::gen_rsa_key_pair;
 ///
-/// // Alice generates a key pair and shares `public` part with Bob
-/// let (secret, public) = gen_rsa_key_pair().split();
+/// // Alice generates a key pair and shares `public` half with Bob
+/// let (private, public) = gen_rsa_key_pair().split();
 ///
-/// // Alice is able to sign her messages with her secret key.
-/// let secure_a = SecureSign::new(secret);
+/// // Alice is able to sign her messages with her private key.
+/// let secure_a = SecureSign::new(private);
 /// let signed_message = secure_a.sign(b"important message")?;
 ///
 /// // Bob is able to verify that signature on the message matches.
@@ -198,26 +283,26 @@ impl SecureMessage {
 /// # use themis::secure_message::SecureVerify;
 /// # use themis::keygen::gen_rsa_key_pair;
 /// #
-/// # let (secret, _) = gen_rsa_key_pair().split();
-/// # let secure = SecureSign::new(secret);
+/// # let (private, _) = gen_rsa_key_pair().split();
+/// # let secure = SecureSign::new(private);
 /// # let signed_message = secure.sign(b"important message").unwrap();
 /// #
 /// let message = b"important message";
 ///
 /// assert!(signed_message.windows(message.len()).any(|subslice| subslice == message));
 /// ```
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct SecureSign {
-    secret_key: SecretKey,
+    private_key: PrivateKey,
 }
 
 impl SecureSign {
-    /// Makes a new Secure Message using given secret key.
+    /// Makes a new Secure Message using given private key.
     ///
     /// Both ECDSA and RSA keys are supported.
-    pub fn new<S: Into<SecretKey>>(secret_key: S) -> Self {
+    pub fn new(private_key: impl Into<PrivateKey>) -> Self {
         Self {
-            secret_key: secret_key.into(),
+            private_key: private_key.into(),
         }
     }
 
@@ -242,8 +327,48 @@ impl SecureSign {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn sign<M: AsRef<[u8]>>(&self, message: M) -> Result<Vec<u8>> {
-        wrap(self.secret_key.as_ref(), &[], message.as_ref())
+    pub fn sign(&self, message: impl AsRef<[u8]>) -> Result<Vec<u8>> {
+        let (private_key_ptr, private_key_len) = into_raw_parts(self.private_key.as_ref());
+        let (message_ptr, message_len) = into_raw_parts(message.as_ref());
+
+        let mut signed = Vec::new();
+        let mut signed_len = 0;
+
+        unsafe {
+            let status = themis_secure_message_sign(
+                private_key_ptr,
+                private_key_len,
+                message_ptr,
+                message_len,
+                ptr::null_mut(),
+                &mut signed_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::BufferTooSmall {
+                return Err(error);
+            }
+        }
+
+        signed.reserve(signed_len);
+
+        unsafe {
+            let status = themis_secure_message_sign(
+                private_key_ptr,
+                private_key_len,
+                message_ptr,
+                message_len,
+                signed.as_mut_ptr(),
+                &mut signed_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::Success {
+                return Err(error);
+            }
+            debug_assert!(signed_len <= signed.capacity());
+            signed.set_len(signed_len as usize);
+        }
+
+        Ok(signed)
     }
 }
 
@@ -265,8 +390,8 @@ impl SecureSign {
 ///
 /// # Examples
 ///
-/// In order to verify signed messages you need the public part of a key pair corresponding to the
-/// secret key used by your peer to sign messages.
+/// In order to verify signed messages you need the public half of a key pair corresponding to the
+/// private key used by your peer to sign messages.
 ///
 /// ```
 /// # fn main() -> Result<(), themis::Error> {
@@ -274,11 +399,11 @@ impl SecureSign {
 /// use themis::secure_message::SecureVerify;
 /// use themis::keygen::gen_ec_key_pair;
 ///
-/// // Alice generates a key pair and shares `public` part with Bob
-/// let (secret, public) = gen_ec_key_pair().split();
+/// // Alice generates a key pair and shares `public` half with Bob
+/// let (private, public) = gen_ec_key_pair().split();
 ///
-/// // Alice is able to sign her messages with her secret key.
-/// let secure_a = SecureSign::new(secret);
+/// // Alice is able to sign her messages with her private key.
+/// let secure_a = SecureSign::new(private);
 /// let signed_message = secure_a.sign(b"important message")?;
 ///
 /// // Bob is able to verify that signature on the message matches.
@@ -296,8 +421,8 @@ impl SecureSign {
 /// # use themis::secure_message::SecureVerify;
 /// # use themis::keygen::gen_ec_key_pair;
 /// #
-/// # let (secret, public) = gen_ec_key_pair().split();
-/// # let secure_a = SecureSign::new(secret);
+/// # let (private, public) = gen_ec_key_pair().split();
+/// # let secure_a = SecureSign::new(private);
 /// # let secure_b = SecureVerify::new(public);
 /// # let signed_message = secure_a.sign(b"important message").unwrap();
 /// #
@@ -314,7 +439,7 @@ impl SecureSign {
 ///
 /// assert!(secure_c.verify(&signed_message).is_err());
 /// ```
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct SecureVerify {
     public_key: PublicKey,
 }
@@ -323,114 +448,54 @@ impl SecureVerify {
     /// Makes a new Secure Message using given public key.
     ///
     /// Both ECDSA and RSA keys are supported.
-    pub fn new<P: Into<PublicKey>>(public_key: P) -> Self {
+    pub fn new(public_key: impl Into<PublicKey>) -> Self {
         Self {
             public_key: public_key.into(),
         }
     }
 
     /// Verifies the signature and returns the original message.
-    pub fn verify<M: AsRef<[u8]>>(&self, message: M) -> Result<Vec<u8>> {
-        unwrap(&[], self.public_key.as_ref(), message.as_ref())
-    }
-}
+    pub fn verify(&self, message: impl AsRef<[u8]>) -> Result<Vec<u8>> {
+        let (public_key_ptr, public_key_len) = into_raw_parts(self.public_key.as_ref());
+        let (signed_ptr, signed_len) = into_raw_parts(message.as_ref());
 
-/// Wrap a message into a secure message.
-fn wrap(secret_key: &[u8], public_key: &[u8], message: &[u8]) -> Result<Vec<u8>> {
-    let (secret_key_ptr, secret_key_len) = into_raw_parts(secret_key);
-    let (public_key_ptr, public_key_len) = into_raw_parts(public_key);
-    let (message_ptr, message_len) = into_raw_parts(message);
+        let mut original = Vec::new();
+        let mut original_len = 0;
 
-    let mut wrapped = Vec::new();
-    let mut wrapped_len = 0;
-
-    unsafe {
-        let status = themis_secure_message_wrap(
-            secret_key_ptr,
-            secret_key_len,
-            public_key_ptr,
-            public_key_len,
-            message_ptr,
-            message_len,
-            ptr::null_mut(),
-            &mut wrapped_len,
-        );
-        let error = Error::from_themis_status(status);
-        if error.kind() != ErrorKind::BufferTooSmall {
-            return Err(error);
+        unsafe {
+            let status = themis_secure_message_verify(
+                public_key_ptr,
+                public_key_len,
+                signed_ptr,
+                signed_len,
+                ptr::null_mut(),
+                &mut original_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::BufferTooSmall {
+                return Err(error);
+            }
         }
-    }
 
-    wrapped.reserve(wrapped_len);
+        original.reserve(original_len);
 
-    unsafe {
-        let status = themis_secure_message_wrap(
-            secret_key_ptr,
-            secret_key_len,
-            public_key_ptr,
-            public_key_len,
-            message_ptr,
-            message_len,
-            wrapped.as_mut_ptr(),
-            &mut wrapped_len,
-        );
-        let error = Error::from_themis_status(status);
-        if error.kind() != ErrorKind::Success {
-            return Err(error);
+        unsafe {
+            let status = themis_secure_message_verify(
+                public_key_ptr,
+                public_key_len,
+                signed_ptr,
+                signed_len,
+                original.as_mut_ptr(),
+                &mut original_len,
+            );
+            let error = Error::from_themis_status(status);
+            if error.kind() != ErrorKind::Success {
+                return Err(error);
+            }
+            debug_assert!(original_len <= original.capacity());
+            original.set_len(original_len as usize);
         }
-        debug_assert!(wrapped_len <= wrapped.capacity());
-        wrapped.set_len(wrapped_len as usize);
+
+        Ok(original)
     }
-
-    Ok(wrapped)
-}
-
-/// Unwrap a secure message into a message.
-fn unwrap(secret_key: &[u8], public_key: &[u8], wrapped: &[u8]) -> Result<Vec<u8>> {
-    let (secret_key_ptr, secret_key_len) = into_raw_parts(secret_key);
-    let (public_key_ptr, public_key_len) = into_raw_parts(public_key);
-    let (wrapped_ptr, wrapped_len) = into_raw_parts(wrapped);
-
-    let mut message = Vec::new();
-    let mut message_len = 0;
-
-    unsafe {
-        let status = themis_secure_message_unwrap(
-            secret_key_ptr,
-            secret_key_len,
-            public_key_ptr,
-            public_key_len,
-            wrapped_ptr,
-            wrapped_len,
-            ptr::null_mut(),
-            &mut message_len,
-        );
-        let error = Error::from_themis_status(status);
-        if error.kind() != ErrorKind::BufferTooSmall {
-            return Err(error);
-        }
-    }
-
-    message.reserve(message_len);
-
-    unsafe {
-        let status = themis_secure_message_unwrap(
-            secret_key_ptr,
-            secret_key_len,
-            public_key_ptr,
-            public_key_len,
-            wrapped_ptr,
-            wrapped_len,
-            message.as_mut_ptr(),
-            &mut message_len,
-        );
-        let error = Error::from_themis_status(status);
-        if error.kind() != ErrorKind::Success {
-            return Err(error);
-        }
-        debug_assert!(message_len <= message.capacity());
-        message.set_len(message_len as usize);
-    }
-
-    Ok(message)
 }

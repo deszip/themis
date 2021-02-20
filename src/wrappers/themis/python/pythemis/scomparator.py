@@ -26,7 +26,7 @@ from .exception import THEMIS_CODES
 
 themis = ctypes.cdll.LoadLibrary(find_library("themis"))
 
-themis.secure_comparator_get_result.restype = ctypes.c_int64
+themis.secure_comparator_get_result.restype = ctypes.c_int32
 
 scomparator_create = themis.secure_comparator_create
 scomparator_create.restype = ctypes.POINTER(ctypes.c_int)
@@ -42,7 +42,7 @@ class SComparator(object):
     def __init__(self, shared_secret):
         self.session_ctx = ctypes.POINTER(ctypes.c_int)
         self.comparator_ctx = scomparator_create()
-        if self.comparator_ctx is None:
+        if not self.comparator_ctx:
             raise exception.ThemisError(THEMIS_CODES.FAIL,
                                         "Secure Comparator failed creating")
         res = themis.secure_comparator_append_secret(

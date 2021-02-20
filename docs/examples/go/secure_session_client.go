@@ -3,51 +3,53 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
+	"os"
+
 	"github.com/cossacklabs/themis/gothemis/keys"
 	"github.com/cossacklabs/themis/gothemis/session"
-	"net"
 )
 
 type callbacks struct {
 }
 
 func (clb *callbacks) GetPublicKeyForId(ss *session.SecureSession, id []byte) *keys.PublicKey {
-	decoded_id, err := base64.StdEncoding.DecodeString(string(id[:]))
+	decodedID, err := base64.StdEncoding.DecodeString(string(id[:]))
 	if nil != err {
 		return nil
 	}
-	return &keys.PublicKey{decoded_id}
+	return &keys.PublicKey{Value: decodedID}
 }
 
 func (clb *callbacks) StateChanged(ss *session.SecureSession, state int) {
 
 }
 
-func send_wrapped_message(c net.Conn, ss *session.SecureSession, message string) bool {
+func sendWrappedMessage(c net.Conn, ss *session.SecureSession, message string) bool {
 	buf, err := ss.Wrap([]byte(message))
 	if nil != err {
 		fmt.Println("error wrapping message")
-		return false
+		os.Exit(1)
 	}
 	_, err = c.Write(buf)
 	if err != nil {
 		fmt.Println("error writing bytes from socket")
-		return false
+		os.Exit(1)
 	}
 	return true
 }
 
-func receive_unwrapped_message(c net.Conn, ss *session.SecureSession) string {
+func receiveUnwrappedMessage(c net.Conn, ss *session.SecureSession) string {
 	buf := make([]byte, 10240)
-	readed_bytes, err := c.Read(buf)
+	readBytes, err := c.Read(buf)
 	if err != nil {
 		fmt.Println("error reading bytes from socket")
-		return ""
+		os.Exit(1)
 	}
-	buf, _, err = ss.Unwrap(buf[:readed_bytes])
+	buf, _, err = ss.Unwrap(buf[:readBytes])
 	if nil != err {
 		fmt.Println("error unwraping message")
-		return ""
+		os.Exit(1)
 	}
 	return string(buf[:])
 }
@@ -56,54 +58,54 @@ func main() {
 	conn, err := net.Dial("tcp", "127.0.0.1:8080")
 	if err != nil {
 		fmt.Println("connection error")
-		return
+		os.Exit(1)
 	}
-	client_keypair, err := keys.New(keys.KEYTYPE_EC)
+	clientKeyPair, err := keys.New(keys.TypeEC)
 	if err != nil {
 		fmt.Println("error generating key pair")
-		return
+		os.Exit(1)
 	}
-	ss, err := session.New([]byte(base64.StdEncoding.EncodeToString(client_keypair.Public.Value)), client_keypair.Private, &callbacks{})
+	ss, err := session.New([]byte(base64.StdEncoding.EncodeToString(clientKeyPair.Public.Value)), clientKeyPair.Private, &callbacks{})
 	if err != nil {
 		fmt.Println("error creating secure session object")
-		return
+		os.Exit(1)
 	}
 
 	buf, err := ss.ConnectRequest()
 	if err != nil {
 		fmt.Println("error creating connection request")
-		return
+		os.Exit(1)
 	}
 
 	for {
 		_, err = conn.Write(buf)
 		if err != nil {
 			fmt.Println("error writing bytes from socket")
-			return
+			os.Exit(1)
 		}
 
 		buf = make([]byte, 10240)
-		readed_bytes, err := conn.Read(buf)
+		readBytes, err := conn.Read(buf)
 		if err != nil {
 			fmt.Println("error reading bytes from socket")
-			return
+			os.Exit(1)
 		}
-		buffer, send_peer, err := ss.Unwrap(buf[:readed_bytes])
+		buffer, sendPeer, err := ss.Unwrap(buf[:readBytes])
 		if nil != err {
 			fmt.Println("error unwraping message")
-			return
+			os.Exit(1)
 		}
 		buf = buffer
-		if !send_peer {
+		if !sendPeer {
 			break
 		}
 	}
 
-	if send_wrapped_message(conn, ss, "This is test themis secure session message") {
-		mes := receive_unwrapped_message(conn, ss)
+	if sendWrappedMessage(conn, ss, "This is test themis secure session message") {
+		mes := receiveUnwrappedMessage(conn, ss)
 		if "" != mes {
 			fmt.Println("Received:", mes)
-			send_wrapped_message(conn, ss, "finish")
+			sendWrappedMessage(conn, ss, "finish")
 		}
 	}
 }

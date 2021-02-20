@@ -1,84 +1,10 @@
-[package]
-name = "themis"
-version = "0.0.3"
-edition = "2018"
-authors = ["rust-themis developers"]
-description = "High-level cryptographic services for storage and messaging"
-homepage = "https://www.cossacklabs.com/themis/"
-repository = "https://github.com/cossacklabs/themis"
-readme = "src/wrappers/themis/rust/README.md"
-keywords = ["crypto", "Themis"]
-categories = ["cryptography", "api-bindings"]
-license = "Apache-2.0"
-include = [
-    "Cargo.toml",
-    "docs/examples/rust/**/*",
-    "src/wrappers/themis/rust/**/*",
-    "tests/rust/**/*",
-]
-
 [workspace]
-
-[lib]
-path = "src/wrappers/themis/rust/src/lib.rs"
-
-[features]
-vendored = ["bindings/vendored"]
-
-[dependencies]
-bindings = { package = "libthemis-sys", path = "src/wrappers/themis/rust/libthemis-sys", version = "=0.0.3" }
-zeroize = "0.5.2"
-
-[dev-dependencies]
-byteorder = "1.2.7"
-clap = "2.32"
-log = "0.4.6"
-env_logger = "0.6.0"
-
-[package.metadata.docs.rs]
-features = ["vendored"]
-dependencies = ["libssl-dev"]
-
-[[example]]
-name = "keygen"
-path = "docs/examples/rust/keygen.rs"
-
-[[example]]
-name = "secure_cell"
-path = "docs/examples/rust/secure_cell.rs"
-
-[[example]]
-name = "secure_compare"
-path = "docs/examples/rust/secure_compare.rs"
-
-[[example]]
-name = "secure_message_client_encrypt"
-path = "docs/examples/rust/secure_message_client_encrypt.rs"
-
-[[example]]
-name = "secure_message_client_verify"
-path = "docs/examples/rust/secure_message_client_verify.rs"
-
-[[example]]
-name = "secure_message_server"
-path = "docs/examples/rust/secure_message_server.rs"
-
-[[test]]
-name = "keys"
-path = "tests/rust/keys.rs"
-
-[[test]]
-name = "secure_cell"
-path = "tests/rust/secure_cell.rs"
-
-[[test]]
-name = "secure_comparator"
-path = "tests/rust/secure_comparator.rs"
-
-[[test]]
-name = "secure_message"
-path = "tests/rust/secure_message.rs"
-
-[[test]]
-name = "secure_session"
-path = "tests/rust/secure_session.rs"
+members = [
+    "benches/themis",
+    "src/wrappers/themis/rust",
+    "src/wrappers/themis/rust/libthemis-sys",
+    "tools/rust",
+]
+default-members = [
+    "src/wrappers/themis/rust",
+]

@@ -16,16 +16,16 @@
 
 #import <objcthemis/skeygen.h>
 #import <objcthemis/serror.h>
-
+#import <themis/themis.h>
 
 @interface TSKeyGen ()
 
-@property (nonatomic, readwrite) TSKeyGenAsymmetricAlgorithm algorithm;
+@property(nonatomic, readwrite) TSKeyGenAsymmetricAlgorithm algorithm;
 
 /** @brief private key */
-@property (nonatomic, readwrite) NSMutableData * privateKey;
+@property(nonatomic, readwrite) NSMutableData *privateKey;
 /** @brief public key */
-@property (nonatomic, readwrite) NSMutableData * publicKey;
+@property(nonatomic, readwrite) NSMutableData *publicKey;
 
 @end
 
@@ -70,13 +70,34 @@
     switch (self.algorithm) {
         case TSKeyGenAsymmetricAlgorithmEC:
             result = (TSErrorType) themis_gen_ec_key_pair([self.privateKey mutableBytes], &privateKeyLength,
-                            [self.publicKey mutableBytes], &publicKeyLength);
+                    [self.publicKey mutableBytes], &publicKeyLength);
             break;
         case TSKeyGenAsymmetricAlgorithmRSA:
             result = (TSErrorType) themis_gen_rsa_key_pair([self.privateKey mutableBytes], &privateKeyLength,
-                            [self.publicKey mutableBytes], &publicKeyLength);
+                    [self.publicKey mutableBytes], &publicKeyLength);
     }
     return result;
 }
 
 @end
+
+NSData* __nullable TSGenerateSymmetricKey(void)
+{
+    TSErrorType result;
+    NSMutableData *key;
+    size_t keyLength = 0;
+
+    result = (TSErrorType) themis_gen_sym_key(NULL, &keyLength);
+    if (result != TSErrorTypeBufferTooSmall) {
+        return nil;
+    }
+
+    key = [NSMutableData dataWithLength:keyLength];
+
+    result = (TSErrorType) themis_gen_sym_key(key.mutableBytes, &keyLength);
+    if (result != TSErrorTypeSuccess) {
+        return nil;
+    }
+
+    return key;
+}

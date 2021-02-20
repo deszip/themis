@@ -1,0 +1,29 @@
+PODS:
+  - CLOpenSSL (1.1.10801)
+  - themis (0.13.4):
+    - themis/openssl-1.1.1 (= 0.13.4)
+  - themis/openssl-1.1.1 (0.13.4):
+    - CLOpenSSL (~> 1.1.10801)
+    - themis/openssl-1.1.1/core (= 0.13.4)
+    - themis/openssl-1.1.1/objcwrapper (= 0.13.4)
+  - themis/openssl-1.1.1/core (0.13.4):
+    - CLOpenSSL (~> 1.1.10801)
+  - themis/openssl-1.1.1/objcwrapper (0.13.4):
+    - CLOpenSSL (~> 1.1.10801)
+    - themis/openssl-1.1.1/core
+
+DEPENDENCIES:
+  - themis (= 0.13.4)
+
+SPEC REPOS:
+  trunk:
+    - CLOpenSSL
+    - themis
+
+SPEC CHECKSUMS:
+  CLOpenSSL: 6e477eaa77effa115295c36234bba65e22db9e2d
+  themis: 967e38135e07efa3a73f6ad11bd1425c5b1e51ef
+
+PODFILE CHECKSUM: fd4355e78b5319a8b343137a3804c304ea06b9a1
+
+COCOAPODS: 1.9.1

@@ -17,27 +17,33 @@
 #ifndef JSTHEMIS_SECURE_CELL_TOKEN_PROTECT_HPP_
 #define JSTHEMIS_SECURE_CELL_TOKEN_PROTECT_HPP_
 
-#include <nan.h>
 #include <vector>
 
-namespace jsthemis{
+#include <nan.h>
 
-  class SecureCellTokenProtect : public Nan::ObjectWrap {
-  public:
-    static void Init(v8::Handle<v8::Object> exports);
+namespace jsthemis
+{
 
-  private:
-    explicit SecureCellTokenProtect(const std::vector<uint8_t>& key);
+class SecureCellTokenProtect : public Nan::ObjectWrap
+{
+public:
+    static void Init(v8::Local<v8::Object> exports);
+
+private:
+    explicit SecureCellTokenProtect(std::vector<uint8_t>&& key);
     ~SecureCellTokenProtect();
 
     static void New(const Nan::FunctionCallbackInfo<v8::Value>& args);
+    static void WithKey(const Nan::FunctionCallbackInfo<v8::Value>& args);
+
     static void encrypt(const Nan::FunctionCallbackInfo<v8::Value>& args);
     static void decrypt(const Nan::FunctionCallbackInfo<v8::Value>& args);
 
     static Nan::Persistent<v8::Function> constructor;
 
     std::vector<uint8_t> key_;
-  };
+};
 
-}
+} // namespace jsthemis
+
 #endif /* JSTHEMIS_SECURE_CELL_TOKEN_PROTECT_HPP_ */

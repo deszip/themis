@@ -14,9 +14,9 @@
 # limitations under the License.
 #
 
-source 'https://github.com/CocoaPods/Specs.git'
+source 'https://cdn.cocoapods.org/'
 
-platform :ios, '8.0'
+platform :ios, '10.0'
 inhibit_all_warnings!
 
 target "objthemis" do
@@ -26,19 +26,12 @@ target "objthemis" do
 
 end
 
+#TODO: add tests for openssl1.1.1 target?
+
+
 target "objthemis_boring" do
 
   # example should work with head
   pod 'themis/themis-boringssl', :git => "https://github.com/cossacklabs/themis.git"
 
-end
-
-
-post_install do |installer_representation|
-    installer_representation.pods_project.targets.each do |target|
-        target.build_configurations.each do |config|
-            config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
-            config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'SECURE_COMPARATOR_ENABLED'
-        end
-    end
 end

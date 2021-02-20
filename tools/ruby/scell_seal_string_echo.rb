@@ -17,12 +17,12 @@
 #!/usr/bin/env ruby
 
 require 'rubygems'
-require 'rubythemis'
+require 'rbthemis'
 require 'base64'
 
 input_args = ARGV
 
-if input_args.length < 3 || input_args.length > 4 
+if input_args.length < 3 || input_args.length > 4
 	STDERR.puts "Usage: <command: enc | dec > <key> <message> <context (optional)>\n"
 	exit 1
 end
@@ -36,7 +36,7 @@ if input_args.length == 4
 	context = input_args[3].dup
 end
 
-scell = Themis::Scell.new(key, Themis::Scell::SEAL_MODE)
+scell = Themis::ScellSeal.new(key)
 
 if command == "enc"
 	encr_message = scell.encrypt(message, context)

@@ -9,33 +9,52 @@ package message
 #include <themis/themis_error.h>
 #include <themis/secure_message.h>
 
-static bool get_message_size(const void *priv, size_t priv_len, const void *public, size_t pub_len, const void *message, size_t message_len, bool is_wrap, size_t *out_len)
-{
-	themis_status_t res;
+enum {
+	SecureMessageEncrypt,
+	SecureMessageDecrypt,
+	SecureMessageSign,
+	SecureMessageVerify,
+};
 
-	if (is_wrap)
-	{
-		res = themis_secure_message_wrap(priv, priv_len, public, pub_len, message, message_len, NULL, out_len);
-	}
-	else
-	{
-		res = themis_secure_message_unwrap(priv, priv_len, public, pub_len, message, message_len, NULL, out_len);
+static bool get_message_size(const void *priv, size_t priv_len, const void *public, size_t pub_len, const void *message, size_t message_len, int mode, size_t *out_len)
+{
+	themis_status_t res = THEMIS_NOT_SUPPORTED;
+
+	switch (mode) {
+	case SecureMessageEncrypt:
+		res = themis_secure_message_encrypt(priv, priv_len, public, pub_len, message, message_len, NULL, out_len);
+		break;
+	case SecureMessageDecrypt:
+		res = themis_secure_message_decrypt(priv, priv_len, public, pub_len, message, message_len, NULL, out_len);
+		break;
+	case SecureMessageSign:
+		res = themis_secure_message_sign(priv, priv_len, message, message_len, NULL, out_len);
+		break;
+	case SecureMessageVerify:
+		res = themis_secure_message_verify(public, pub_len, message, message_len, NULL, out_len);
+		break;
 	}
 
 	return THEMIS_BUFFER_TOO_SMALL == res;
 }
 
-static bool process(const void *priv, size_t priv_len, const void *public, size_t pub_len, const void *message, size_t message_len, bool is_wrap, void *out, size_t out_len)
+static bool process(const void *priv, size_t priv_len, const void *public, size_t pub_len, const void *message, size_t message_len, int mode, void *out, size_t *out_len)
 {
-	themis_status_t res;
+	themis_status_t res = THEMIS_NOT_SUPPORTED;
 
-	if (is_wrap)
-	{
-		res = themis_secure_message_wrap(priv, priv_len, public, pub_len, message, message_len, out, &out_len);
-	}
-	else
-	{
-		res = themis_secure_message_unwrap(priv, priv_len, public, pub_len, message, message_len, out, &out_len);
+	switch (mode) {
+	case SecureMessageEncrypt:
+		res = themis_secure_message_encrypt(priv, priv_len, public, pub_len, message, message_len, out, out_len);
+		break;
+	case SecureMessageDecrypt:
+		res = themis_secure_message_decrypt(priv, priv_len, public, pub_len, message, message_len, out, out_len);
+		break;
+	case SecureMessageSign:
+		res = themis_secure_message_sign(priv, priv_len, message, message_len, out, out_len);
+		break;
+	case SecureMessageVerify:
+		res = themis_secure_message_verify(public, pub_len, message, message_len, out, out_len);
+		break;
 	}
 
 	return THEMIS_SUCCESS == res;
@@ -44,23 +63,58 @@ static bool process(const void *priv, size_t priv_len, const void *public, size_
 */
 import "C"
 import (
+	"unsafe"
+
 	"github.com/cossacklabs/themis/gothemis/errors"
 	"github.com/cossacklabs/themis/gothemis/keys"
-	"unsafe"
 )
 
+const (
+	secureMessageEncrypt = iota
+	secureMessageDecrypt
+	secureMessageSign
+	secureMessageVerify
+)
+
+// Errors returned by Secure Message.
+var (
+	ErrEncryptMessage    = errors.New("failed to encrypt message")
+	ErrDecryptMessage    = errors.New("failed to decrypt message")
+	ErrSignMessage       = errors.New("failed to sign message")
+	ErrVerifyMessage     = errors.New("failed to verify message")
+	ErrProcessMessage    = errors.New("failed to process message")
+	ErrGetOutputSize     = errors.New("failed to get output size")
+	ErrMissingMessage    = errors.NewWithCode(errors.InvalidParameter, "empty message for Secure Cell")
+	ErrMissingPublicKey  = errors.NewWithCode(errors.InvalidParameter, "empty peer public key for Secure Message")
+	ErrMissingPrivateKey = errors.NewWithCode(errors.InvalidParameter, "empty private key for Secure Message")
+	ErrOutOfMemory       = errors.NewWithCode(errors.NoMemory, "Secure Message cannot allocate enough memory")
+	// Deprecated: Since 0.14. Use ErrOutOfMemory instead.
+	ErrOverflow          = ErrOutOfMemory
+)
+
+// SecureMessage provides a sequence-independent, stateless, contextless messaging system.
 type SecureMessage struct {
 	private    *keys.PrivateKey
 	peerPublic *keys.PublicKey
 }
 
+// New makes a new Secure Message context.
+// You need to specify both keys for encrypt-decrypt mode.
+// Private key is required for signing messages. Public key is required for verifying messages
 func New(private *keys.PrivateKey, peerPublic *keys.PublicKey) *SecureMessage {
 	return &SecureMessage{private, peerPublic}
 }
 
-func messageProcess(private *keys.PrivateKey, peerPublic *keys.PublicKey, message []byte, is_wrap bool) ([]byte, error) {
+// C returns sizes as size_t but Go expresses buffer lengths as int.
+// Make sure that all sizes are representable in Go and there is no overflows.
+func sizeOverflow(n C.size_t) bool {
+	const maxInt = int(^uint(0) >> 1)
+	return n > C.size_t(maxInt)
+}
+
+func messageProcess(private *keys.PrivateKey, peerPublic *keys.PublicKey, message []byte, mode int) ([]byte, error) {
 	if nil == message || 0 == len(message) {
-		return nil, errors.New("No message was provided")
+		return nil, ErrMissingMessage
 	}
 
 	var priv, pub unsafe.Pointer
@@ -80,73 +134,86 @@ func messageProcess(private *keys.PrivateKey, peerPublic *keys.PublicKey, messag
 		pubLen = C.size_t(len(peerPublic.Value))
 	}
 
-	var output_length C.size_t
+	var outputLength C.size_t
 	if !bool(C.get_message_size(priv,
 		privLen,
 		pub,
 		pubLen,
 		unsafe.Pointer(&message[0]),
 		C.size_t(len(message)),
-		C.bool(is_wrap),
-		&output_length)) {
-		return nil, errors.New("Failed to get output size")
+		C.int(mode),
+		&outputLength)) {
+		return nil, ErrGetOutputSize
+	}
+	if sizeOverflow(outputLength) {
+		return nil, ErrOutOfMemory
 	}
 
-	output := make([]byte, int(output_length), int(output_length))
+	output := make([]byte, int(outputLength), int(outputLength))
 	if !bool(C.process(priv,
 		privLen,
 		pub,
 		pubLen,
 		unsafe.Pointer(&message[0]),
 		C.size_t(len(message)),
-		C.bool(is_wrap),
+		C.int(mode),
 		unsafe.Pointer(&output[0]),
-		output_length)) {
-		if is_wrap {
-			return nil, errors.New("Failed to wrap message")
-		} else {
-			return nil, errors.New("Failed to unwrap message")
+		&outputLength)) {
+		switch mode {
+		case secureMessageEncrypt:
+			return nil, ErrEncryptMessage
+		case secureMessageDecrypt:
+			return nil, ErrDecryptMessage
+		case secureMessageSign:
+			return nil, ErrSignMessage
+		case secureMessageVerify:
+			return nil, ErrVerifyMessage
+		default:
+			return nil, ErrProcessMessage
 		}
-
 	}
 
-	return output, nil
+	return output[:outputLength], nil
 }
 
+// Wrap encrypts the provided message.
 func (sm *SecureMessage) Wrap(message []byte) ([]byte, error) {
 	if nil == sm.private || 0 == len(sm.private.Value) {
-		return nil, errors.New("Private key was not provided")
+		return nil, ErrMissingPrivateKey
 	}
 
 	if nil == sm.peerPublic || 0 == len(sm.peerPublic.Value) {
-		return nil, errors.New("Peer public key was not provided")
+		return nil, ErrMissingPublicKey
 	}
-	return messageProcess(sm.private, sm.peerPublic, message, true)
+	return messageProcess(sm.private, sm.peerPublic, message, secureMessageEncrypt)
 }
 
+// Unwrap decrypts the encrypted message.
 func (sm *SecureMessage) Unwrap(message []byte) ([]byte, error) {
 	if nil == sm.private || 0 == len(sm.private.Value) {
-		return nil, errors.New("Private key was not provided")
+		return nil, ErrMissingPrivateKey
 	}
 
 	if nil == sm.peerPublic || 0 == len(sm.peerPublic.Value) {
-		return nil, errors.New("Peer public key was not provided")
+		return nil, ErrMissingPublicKey
 	}
-	return messageProcess(sm.private, sm.peerPublic, message, false)
+	return messageProcess(sm.private, sm.peerPublic, message, secureMessageDecrypt)
 }
 
+// Sign signs the provided message and returns it signed.
 func (sm *SecureMessage) Sign(message []byte) ([]byte, error) {
 	if nil == sm.private || 0 == len(sm.private.Value) {
-		return nil, errors.New("Private key was not provided")
+		return nil, ErrMissingPrivateKey
 	}
 
-	return messageProcess(sm.private, nil, message, true)
+	return messageProcess(sm.private, nil, message, secureMessageSign)
 }
 
+// Verify checks the signature on the message and returns the original message.
 func (sm *SecureMessage) Verify(message []byte) ([]byte, error) {
 	if nil == sm.peerPublic || 0 == len(sm.peerPublic.Value) {
-		return nil, errors.New("Peer public key was not provided")
+		return nil, ErrMissingPublicKey
 	}
 
-	return messageProcess(nil, sm.peerPublic, message, false)
+	return messageProcess(nil, sm.peerPublic, message, secureMessageVerify)
 }

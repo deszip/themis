@@ -50,24 +50,48 @@ static int compare_result(void *ctx)
 	return (int)res;
 }
 
-const int GOTHEMIS_SCOMPARE_MATCH = THEMIS_SCOMPARE_MATCH;
-const int GOTHEMIS_SCOMPARE_NO_MATCH = THEMIS_SCOMPARE_NO_MATCH;
-const int GOTHEMIS_SCOMPARE_NOT_READY = THEMIS_SCOMPARE_NOT_READY;
-
 */
 import "C"
 import (
-	"github.com/cossacklabs/themis/gothemis/errors"
 	"runtime"
 	"unsafe"
+
+	"github.com/cossacklabs/themis/gothemis/errors"
 )
 
+// Secure comparison result.
+const (
+	Match    = int(C.THEMIS_SCOMPARE_MATCH)
+	NoMatch  = int(C.THEMIS_SCOMPARE_NO_MATCH)
+	NotReady = int(C.THEMIS_SCOMPARE_NOT_READY)
+)
+
+// Secure comparison result.
+//
+// Deprecated: Since 0.11. Use "compare.Match..." constants instead.
+const (
+	COMPARE_MATCH     = Match
+	COMPARE_NO_MATCH  = NoMatch
+	COMPARE_NOT_READY = NotReady
+)
+
+// Errors returned by Secure Comparator.
 var (
-	COMPARE_MATCH = int(C.GOTHEMIS_SCOMPARE_MATCH)
-	COMPARE_NO_MATCH = int(C.GOTHEMIS_SCOMPARE_NO_MATCH)
-	COMPARE_NOT_READY = int(C.GOTHEMIS_SCOMPARE_NOT_READY)
+	ErrAppendSecret             = errors.New("failed to append secret")
+	ErrCreateComparator         = errors.New("failed to create comparator object")
+	ErrDestroyComparator        = errors.New("failed to destroy comparator object")
+	ErrProtocolData             = errors.New("failed to get protocol data")
+	ErrProtocolDataSize         = errors.New("failed to get protocol data size")
+	ErrNoResult                 = errors.New("failed to get result")
+	ErrMissingSecret            = errors.NewWithCode(errors.InvalidParameter, "empty secret for Secure Comparator")
+	ErrMissingData              = errors.NewWithCode(errors.InvalidParameter, "empty comparison message for Secure Comparator")
+	ErrOutOfMemory              = errors.NewWithCode(errors.NoMemory, "Secure Comparator cannot allocate enough memory")
+	// Deprecated: Since 0.14. Use ErrOutOfMemory instead.
+	ErrOverflow                 = ErrOutOfMemory
 )
 
+// SecureCompare is an interactive protocol for two parties that compares whether
+// they share the same secret or not.
 type SecureCompare struct {
 	ctx unsafe.Pointer
 }
@@ -76,10 +100,18 @@ func finalize(sc *SecureCompare) {
 	sc.Close()
 }
 
+// C returns sizes as size_t but Go expresses buffer lengths as int.
+// Make sure that all sizes are representable in Go and there is no overflows.
+func sizeOverflow(n C.size_t) bool {
+	const maxInt = int(^uint(0) >> 1)
+	return n > C.size_t(maxInt)
+}
+
+// New prepares a new secure comparison.
 func New() (*SecureCompare, error) {
 	ctx := C.compare_init()
 	if nil == ctx {
-		return nil, errors.New("Failed to create comparator object")
+		return nil, ErrCreateComparator
 	}
 
 	sc := &SecureCompare{ctx}
@@ -88,54 +120,65 @@ func New() (*SecureCompare, error) {
 	return sc, nil
 }
 
+// Close destroys Secure Comparator.
 func (sc *SecureCompare) Close() error {
 	if nil != sc.ctx {
 		if bool(C.compare_destroy(sc.ctx)) {
 			sc.ctx = nil
 		} else {
-			return errors.New("Failed to destroy comparator object")
+			return ErrDestroyComparator
 		}
 	}
 
 	return nil
 }
 
+// Append adds data to be compared.
 func (sc *SecureCompare) Append(secret []byte) error {
 	if nil == secret || 0 == len(secret) {
-		return errors.New("Secret was not provided")
+		return ErrMissingSecret
 	}
 	if !bool(C.compare_append(sc.ctx, unsafe.Pointer(&secret[0]), C.size_t(len(secret)))) {
-		return errors.New("Failed to append secret")
+		return ErrAppendSecret
 	}
 
 	return nil
 }
 
+// Begin initiates secure comparison and returns data to be sent to the peer.
 func (sc *SecureCompare) Begin() ([]byte, error) {
 	var outLen C.size_t
 
 	if !bool(C.compare_begin_size(sc.ctx, &outLen)) {
-		return nil, errors.New("Failed to get output size")
+		return nil, ErrProtocolDataSize
+	}
+	if sizeOverflow(outLen) {
+		return nil, ErrOutOfMemory
 	}
 
 	out := make([]byte, outLen)
 
 	if !bool(C.compare_begin(sc.ctx, unsafe.Pointer(&out[0]), outLen)) {
-		return nil, errors.New("Failed to get compare data")
+		return nil, ErrProtocolData
 	}
 
 	return out, nil
 }
 
+// Proceed continues the comparison process with peer data and returns a reply.
+// Comparison is complete when this method returns nil successfully.
 func (sc *SecureCompare) Proceed(data []byte) ([]byte, error) {
 	var outLen C.size_t
 
 	if nil == data || 0 == len(data) {
-		return nil, errors.New("Data was not provided")
+		return nil, ErrMissingData
 	}
 
 	if !bool(C.compare_proceed_size(sc.ctx, unsafe.Pointer(&data[0]), C.size_t(len(data)), &outLen)) {
-		return nil, errors.New("Failed to get output size")
+		return nil, ErrProtocolDataSize
+	}
+	if sizeOverflow(outLen) {
+		return nil, ErrOutOfMemory
 	}
 
 	if 0 == outLen {
@@ -152,15 +195,16 @@ func (sc *SecureCompare) Proceed(data []byte) ([]byte, error) {
 		return out, nil
 	}
 
-	return nil, errors.New("Failed to get output")
+	return nil, ErrProtocolData
 }
 
+// Result returns the result of the comparison.
 func (sc *SecureCompare) Result() (int, error) {
 	res := int(C.compare_result(sc.ctx))
 	switch res {
-	case COMPARE_NOT_READY, COMPARE_NO_MATCH, COMPARE_MATCH:
+	case NotReady, NoMatch, Match:
 		return int(res), nil
 	}
 
-	return COMPARE_NOT_READY, errors.New("Failed to get compare result")
+	return NotReady, ErrNoResult
 }

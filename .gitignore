@@ -31,6 +31,7 @@ xcuserdata
 *.moved-aside
 *~.nib
 *.swp
+*.xcworkspacedata
 
 # additional rules
 DerivedData/
@@ -45,11 +46,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+src/wrappers/themis/python/dist
+src/wrappers/themis/python/files3.txt
+src/wrappers/themis/python/pythemis.egg-info
+
 tests/phpthemis/vendor
 tests/phpthemis/composer.json
 tests/phpthemis/composer.phar
 tests/phpthemis/composer.lock
 
+# Android build system
+src/wrappers/themis/android/.externalNativeBuild
 third_party/boringssl/.externalNativeBuild
 
 # php
@@ -61,10 +68,24 @@ third_party/boringssl/.externalNativeBuild
 # ios
 docs/examples/Themis-server/swift/Pods
 docs/examples/Themis-server/Obj-C/Pods
-docs/examples/swift/Pods
-docs/examples/objc/Pods
+docs/examples/swift/iOS-CocoaPods/Pods
+docs/examples/objc/iOS-CocoaPods/Pods
+
+# Carthage
+Carthage/
+docs/examples/swift/iOS-Carthage/Carthage
+docs/examples/objc/iOS-Carthage/Carthage
+
 
 # rust
 /target
+/src/wrappers/themis/rust/target
 **/*.rs.bk
 Cargo.lock
+
+# ruby
+/src/wrappers/themis/ruby/*.gem
+
+# vscode
+.settings
+.project

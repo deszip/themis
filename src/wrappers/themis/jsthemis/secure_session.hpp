@@ -17,19 +17,30 @@
 #ifndef JSTHEMIS_SECURE_SESSION_HPP_
 #define JSTHEMIS_SECURE_SESSION_HPP_
 
-#include <nan.h>
 #include <vector>
+
+#include <nan.h>
+
 #include <themis/themis.h>
 
-namespace jsthemis{
+namespace jsthemis
+{
 
-  class SecureSession : public Nan::ObjectWrap {
-  public:
-    static void Init(v8::Handle<v8::Object> exports);
+class SecureSession : public Nan::ObjectWrap
+{
+public:
+    static void Init(v8::Local<v8::Object> exports);
 
-  private:
-    explicit SecureSession(const std::vector<uint8_t>& id, const std::vector<uint8_t>& private_key, v8::Local<v8::Function> get_pub_by_id_callback);
+private:
+    explicit SecureSession(const std::vector<uint8_t>& id,
+                           const std::vector<uint8_t>& private_key,
+                           v8::Local<v8::Function> get_pub_by_id_callback);
     ~SecureSession();
+
+    bool isCreated()
+    {
+        return session_ != nullptr;
+    }
 
     static void New(const Nan::FunctionCallbackInfo<v8::Value>& args);
     static void connectRequest(const Nan::FunctionCallbackInfo<v8::Value>& args);
@@ -39,12 +50,15 @@ namespace jsthemis{
 
     static Nan::Persistent<v8::Function> constructor;
 
-  private:
+    static int get_public_key_for_id_callback(
+        const void* id, size_t id_length, void* key_buffer, size_t key_buffer_length, void* user_data);
+
+private:
     secure_session_t* session_;
     secure_session_user_callbacks_t callback_;
-  public:
     Nan::Callback id_to_pub_key_callback_;
-  };
+};
 
-}
+} // namespace jsthemis
+
 #endif /* JSTHEMIS_SECURE_SESSION_HPP_ */

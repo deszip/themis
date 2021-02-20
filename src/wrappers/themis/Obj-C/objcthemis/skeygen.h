@@ -20,7 +20,6 @@
 */
 
 #import <Foundation/Foundation.h>
-#import <themis/themis.h>
 
 /**
 * @addtogroup WRAPPERS
@@ -43,10 +42,10 @@ typedef NS_ENUM(NSInteger, TSKeyGenAsymmetricAlgorithm) {
 
 
 /** @brief private key */
-@property (nonatomic, readonly) NSMutableData * privateKey;
+@property(nonatomic, readonly) NSMutableData *privateKey;
 
 /** @brief public key */
-@property (nonatomic, readonly) NSMutableData * publicKey;
+@property(nonatomic, readonly) NSMutableData *publicKey;
 
 /**
 * @brief initialise key pair generator, generates privateKey and publicKey
@@ -56,6 +55,15 @@ typedef NS_ENUM(NSInteger, TSKeyGenAsymmetricAlgorithm) {
 
 
 @end
+
+/**
+ * Generates new symmetric master key.
+ *
+ * Securely generate a new master key suitable for Secure Cell.
+ *
+ * @returns a newly allocated key of default size.
+ */
+NSData* __nullable TSGenerateSymmetricKey(void);
 
 NS_ASSUME_NONNULL_END
 

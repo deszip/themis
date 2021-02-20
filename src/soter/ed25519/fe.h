@@ -4,12 +4,27 @@
 /* #include "crypto_int32.h" */
 #include <stdint.h>
 
+#include <soter/soter_api.h>
+
 typedef int32_t crypto_int32;
 typedef int64_t crypto_int64;
 typedef uint32_t crypto_uint32;
 typedef uint64_t crypto_uint64;
 
 typedef crypto_int32 fe[10];
+
+#if defined(WITH_UBSAN) && (defined(__clang__) && !defined(__AFL_COMPILER))
+#define SOTER_ED25519_NO_UBSAN __attribute__((no_sanitize( \
+    "shift", \
+    "unsigned-integer-overflow", \
+    "implicit-integer-sign-change", \
+    "implicit-unsigned-integer-truncation", \
+    "implicit-signed-integer-truncation")))
+#elif defined(WITH_UBSAN) && (defined(__clang__) || defined(__GNUC__))
+#define SOTER_ED25519_NO_UBSAN __attribute__((no_sanitize("undefined")))
+#else
+#define SOTER_ED25519_NO_UBSAN
+#endif
 
 /*
 fe means field element.
@@ -39,9 +54,11 @@ Bounds on each t[i] vary depending on context.
 #define fe_pow22523 crypto_sign_ed25519_ref10_fe_pow22523
 
 extern void fe_frombytes(fe,const unsigned char *);
+SOTER_PRIVATE_API
 extern void fe_tobytes(unsigned char *,const fe);
 
 extern void fe_copy(fe,const fe);
+SOTER_PRIVATE_API
 extern int fe_isnonzero(const fe);
 extern int fe_isnegative(const fe);
 extern void fe_0(fe);
@@ -51,6 +68,7 @@ extern void fe_cmov(fe,const fe,unsigned int);
 
 extern void fe_add(fe,const fe,const fe);
 extern void fe_sub(fe,const fe,const fe);
+SOTER_PRIVATE_API
 extern void fe_neg(fe,const fe);
 extern void fe_mul(fe,const fe,const fe);
 extern void fe_sq(fe,const fe);

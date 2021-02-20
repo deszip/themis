@@ -7,7 +7,7 @@ package keys
 #include <stdint.h>
 #include <stdbool.h>
 #include <themis/themis_error.h>
-#include <themis/secure_message.h>
+#include <themis/secure_keygen.h>
 
 #define KEYTYPE_EC 0
 #define KEYTYPE_RSA 1
@@ -54,47 +54,81 @@ static bool gen_keys(int key_type, void *private, size_t priv_len, void *public,
 import "C"
 
 import (
-	"github.com/cossacklabs/themis/gothemis/errors"
 	"unsafe"
+
+	"github.com/cossacklabs/themis/gothemis/errors"
 )
 
+// Type of Themis key.
 const (
-	KEYTYPE_EC  = 0
-	KEYTYPE_RSA = 1
+	TypeEC = iota
+	TypeRSA
 )
 
+// Type of Themis key.
+//
+// Deprecated: Since 0.11. Use "keys.Type..." constants instead.
+const (
+	KEYTYPE_EC  = TypeEC
+	KEYTYPE_RSA = TypeRSA
+)
+
+// Errors returned by key generation.
+var (
+	ErrGetKeySize       = errors.New("failed to get needed key sizes")
+	ErrGenerateKeypair  = errors.New("failed to generate keypair")
+	ErrInvalidType      = errors.NewWithCode(errors.InvalidParameter, "invalid key type specified")
+	ErrOutOfMemory      = errors.NewWithCode(errors.NoMemory, "key generator cannot allocate enough memory")
+	// Deprecated: Since 0.14. Use ErrOutOfMemory instead.
+	ErrOverflow         = ErrOutOfMemory
+)
+
+// PrivateKey stores a ECDSA or RSA private key.
 type PrivateKey struct {
 	Value []byte
 }
 
+// PublicKey stores a ECDSA or RSA public key.
 type PublicKey struct {
 	Value []byte
 }
 
+// Keypair stores a ECDSA or RSA key pair.
 type Keypair struct {
 	Private *PrivateKey
 	Public  *PublicKey
 }
 
+// New generates a new random pair of keys of the specified type.
 func New(keytype int) (*Keypair, error) {
-	if (keytype != KEYTYPE_EC) && (keytype != KEYTYPE_RSA) {
-		return nil, errors.New("Incorrect key type")
+	if (keytype != TypeEC) && (keytype != TypeRSA) {
+		return nil, ErrInvalidType
 	}
 
 	var privLen, pubLen C.size_t
 	if !bool(C.get_key_size(C.int(keytype), &privLen, &pubLen)) {
-		return nil, errors.New("Failed to get needed key sizes")
+		return nil, ErrGetKeySize
+	}
+	if sizeOverflow(privLen) || sizeOverflow(pubLen) {
+		return nil, ErrOutOfMemory
 	}
 
 	priv := make([]byte, int(privLen), int(privLen))
 	pub := make([]byte, int(pubLen), int(pubLen))
 
 	if !bool(C.gen_keys(C.int(keytype), unsafe.Pointer(&priv[0]), privLen, unsafe.Pointer(&pub[0]), pubLen)) {
-		return nil, errors.New("Failed to generate keypair")
+		return nil, ErrGenerateKeypair
 	}
 
 	return &Keypair{
 		Private: &PrivateKey{Value: priv},
 		Public:  &PublicKey{Value: pub},
 	}, nil
+}
+
+// C returns sizes as size_t but Go expresses buffer lengths as int.
+// Make sure that all sizes are representable in Go and there is no overflows.
+func sizeOverflow(n C.size_t) bool {
+	const maxInt = int(^uint(0) >> 1)
+	return n > C.size_t(maxInt)
 }
